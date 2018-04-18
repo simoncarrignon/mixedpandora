@@ -27,6 +27,7 @@
 #include <cmath>
 
 #include <cstdlib>
+#include <iostream>
 
 #include <Interval.hxx>
 #include <Point2D.hxx>
@@ -111,6 +112,38 @@ public:
         return true;
     }
 
+    Rectangle<Type> intersection( const Rectangle<Type> other )
+    {
+        Rectangle<Type> result;
+        // Interval caracterization for Rectangle "this"
+        Interval<Type> R1_OX( _origin._x, _origin._x + _size._width -1 );
+        Interval<Type> R1_OY( _origin._y, _origin._y + _size._height -1 );
+        // Interval caracterization for Rectangle "other"
+        Interval<Type> R2_OX( other._origin._x, other._origin._x + other._size._width -1 );
+        Interval<Type> R2_OY( other._origin._y, other._origin._y + other._size._height -1 );
+
+        Interval<Type> Intersection_OX;
+        if ( ! R1_OX.intersection( R2_OX, Intersection_OX ) )
+        {
+            return result;
+        }
+
+
+        Interval<Type> Intersection_OY;
+        if ( ! R1_OY.intersection( R2_OY, Intersection_OY ) )
+        {
+            return result;
+        }
+
+        result.intervals2Rectangle( Intersection_OX, Intersection_OY );
+
+        return result;
+    }
+
+    int size( )
+    {
+        return _size._width*_size._height;
+    }
 
     friend std::ostream & operator<<( std::ostream & stream, const Rectangle<Type> & rectangle )
     {
@@ -122,6 +155,11 @@ public:
         _origin = rectangle._origin;
         _size = rectangle._size;
         return *this;
+    }
+
+    friend Rectangle<Type> operator+( const Rectangle<Type> & rectangle, const Point2D<Type> & dist )
+    {
+        return Rectangle<Type>( rectangle._size, rectangle._origin+dist );
     }
 
     Rectangle<Type> clone( ) const

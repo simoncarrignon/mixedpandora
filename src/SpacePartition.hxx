@@ -29,6 +29,7 @@
 #include <list>
 #include <vector>
 #include <Scheduler.hxx>
+#include <OverlapAreas.hxx>
 
 namespace Engine
 {
@@ -72,6 +73,8 @@ namespace Engine
         // if entire overlap is true, the node will send its owned zone in overlap as well as adjacents overlapped zones
         void sendOverlapZones( const int & sectionIndex, const bool & entireOverlap = true );
         void sendMaxOverlapZones( );
+
+        void transferOverlapZones( );
         // method to copy of agents to neighbours
         void sendGhostAgents( const int & sectionIndex );
 
@@ -87,6 +90,16 @@ namespace Engine
 
         //! id's of neighboring computer nodes
         std::vector<int> _neighbors;
+#ifdef ORIG
+#else
+#ifdef RGT
+        std::vector<std::pair<bool,int>> _Neighbors[4];
+        void setSectionNeighbours( int nc );
+#else
+        OverlapAreas _OverlapAreas;
+#endif
+#endif
+
         //! area inside boundaries owned by the computer node without overlap
         Rectangle<int> _ownedArea;
         //! the four sections into a world is divided
@@ -157,6 +170,7 @@ namespace Engine
         virtual ~SpacePartition( );
 
         void finish( );
+        void abort( );
 
         const Rectangle<int> & getBoundaries( ) const;
         //! initialization of the object World for the simulation. Required to be called before calling run.

@@ -34,6 +34,7 @@ namespace Engine
 
     SpacePartition::~SpacePartition( )
     {
+        std::cout << "SpacePartition::~SpacePartition\n"; exit(1);
     }
 
     void SpacePartition::init( int argc, char *argv[] )
@@ -60,6 +61,8 @@ namespace Engine
         MpiFactory::instance( )->registerTypes( );
         initOverlappingData( );
 
+        std::cout << "SpacePartition::initData\n"; exit(1);
+
         std::stringstream logName;
         logName << "simulation_" << _id;
         log_INFO( logName.str( ), "finished init at: "  << getWallTime( ) );
@@ -67,6 +70,7 @@ namespace Engine
 
     void SpacePartition::checkOverlapSize( )
     {
+        std::cout << "SpacePartition::checkOverlapSize\n"; exit(1);
         int subfieldSizeX = _ownedArea._size._width/2;
         int subfieldSizeY = _ownedArea._size._height/2;
         if ( _overlap*2>subfieldSizeX || _overlap*2>subfieldSizeY )
@@ -79,10 +83,15 @@ namespace Engine
 
     void SpacePartition::stablishBoundaries( )
     {
+        _OverlapAreas = OverlapAreas( _id, _numTasks, _overlap, _world->getConfig( ).getSize( )._width );
+        _ownedArea = _OverlapAreas.getOwnedArea( );
+#ifdef KKK
         // position of world related to the complete set of computer nodes
         int worldsPerRow = sqrt( _numTasks );
+        int size = _world->getConfig( ).getSize( )._width;
+        size = size/worldsPerRow;
         _worldPos = getPositionFromId( _id );
-
+#ifdef ORIG
         for ( int x=_worldPos._x-1; x<=_worldPos._x+1; x++ )
         {
             for ( int y=_worldPos._y-1; y<=_worldPos._y+1; y++ )
@@ -97,8 +106,8 @@ namespace Engine
             }
         }
         // owned area inside global coordinates, depending on worldPos
-        _ownedArea._size._width = _world->getConfig( ).getSize( )._width/sqrt( _numTasks );
-        _ownedArea._size._height = _world->getConfig( ).getSize( )._height/sqrt( _numTasks );
+        _ownedArea._size._width = _world->getConfig( ).getSize( )._width/worldsPerRow;
+        _ownedArea._size._height = _world->getConfig( ).getSize( )._height/worldsPerRow;
         _ownedArea._origin._x = _worldPos._x*_ownedArea._size._width;
         _ownedArea._origin._y = _worldPos._y*_ownedArea._size._height;
 
@@ -126,12 +135,6 @@ namespace Engine
         {
             _boundaries._size._height += _overlap;
         }
-        // creating sections
-        _sections.resize( 4 );
-        _sections[0] = Rectangle<int>( _ownedArea._size/2, _ownedArea._origin );
-        _sections[1] = Rectangle<int>( _ownedArea._size/2, Point2D<int>( _ownedArea._origin._x+_ownedArea._size._width/2, _ownedArea._origin._y ));
-        _sections[2] = Rectangle<int>( _ownedArea._size/2, Point2D<int>( _ownedArea._origin._x, _ownedArea._origin._y+_ownedArea._size._height/2 ));
-        _sections[3] = Rectangle<int>( _ownedArea._size/2, Point2D<int>( _ownedArea._origin._x+_ownedArea._size._width/2, _ownedArea._origin._y+_ownedArea._size._height/2 ));
 
         if ( _ownedArea._size._width%2!=0 || _ownedArea._size._height%2!=0 )
         {
@@ -139,16 +142,117 @@ namespace Engine
             oss << "SpacePartition::init - local raster size: " << _ownedArea._size << " must be divisible by 2";
             throw Exception( oss.str( ) );
         }
+        std::cout << _id << " _ownedArea: " << _ownedArea << " " << _OverlapAreas.getOwnedArea( ) << "\n";
+        std::cout << _id << " _boundaries: " << _boundaries << " " << _OverlapAreas.getOverlapArea( ) << "\n"; exit(0);
+
         checkOverlapSize( );
+
+        // creating sections
+        _sections.resize( 4 );
+        _sections[0] = Rectangle<int>( _ownedArea._size/2, _ownedArea._origin );
+        _sections[1] = _sections[0] + Point2D<int>( size/2, 0 );
+        _sections[2] = _sections[0] + Point2D<int>( 0, size/2 );
+        _sections[3] = _sections[0] + Point2D<int>( size/2, size/2 );
+
+#else
+#ifdef RGT
+        setSectionNeighbours( worldsPerRow );
+        // owned area inside global coordinates, depending on worldPos
+        _ownedArea = Rectangle<int>( _worldPos._x*size, _worldPos._y*size,
+                              ( _worldPos._x + 1 )*size-1, ( _worldPos._y + 1 )*size-1 );
+        
+        _boundaries = Rectangle<int>( std::max( 0, _worldPos._x*size - _overlap ), std::max( 0, _worldPos._y*size - _overlap ),
+            std::min( size*worldsPerRow, ( _worldPos._x + 1 )*size + _overlap ) - 1, std::min( size*worldsPerRow, ( _worldPos._y + 1 )*size + _overlap ) - 1 );
+
+        // creating sections
+        _sections.resize( 4 );
+        _sections[0] = Rectangle<int>( _ownedArea._size/2, _ownedArea._origin );
+        _sections[1] = _sections[0] + Point2D<int>( size/2, 0 );
+        _sections[2] = _sections[0] + Point2D<int>( 0, size/2 );
+        _sections[3] = _sections[0] + Point2D<int>( size/2, size/2 );
+#endif
+#endif
 
         std::stringstream logName;
         logName << "simulation_" << _id;
         log_INFO( logName.str( ), getWallTime( ) << " pos: " << _worldPos << ", global size: " << _world->getConfig( ).getSize( ) << ", boundaries: " << _boundaries << " and owned area: " << _ownedArea );
         log_INFO( logName.str( ), getWallTime( ) << " sections 0: " << _sections[0] << " - 1: " << _sections[1] << " - 2:" << _sections[2] << " - 3: " << _sections[3] );
+#endif
     }
+
+#ifdef RGT
+    void SpacePartition::setSectionNeighbours( int nc )
+    {
+        if (_worldPos._x%2==_worldPos._y)
+        {
+            // section 0
+            if ( _worldPos._x>0 ) _Neighbors[0].push_back( std::make_pair( true, _id-1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[0].push_back( std::make_pair( true, _id-nc ) );
+            if ( _worldPos._x>0 && _worldPos._y>0 ) _Neighbors[0].push_back( std::make_pair( true, _id-nc-1 ) );
+            if ( _worldPos._x<nc-1 ) _Neighbors[0].push_back( std::make_pair( false, _id+1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[0].push_back( std::make_pair( false, _id+nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y<nc-1 ) _Neighbors[0].push_back( std::make_pair( false, _id+1+nc ) );
+            // section 1
+            if ( _worldPos._x<nc-1 ) _Neighbors[1].push_back( std::make_pair( true, _id+1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[1].push_back( std::make_pair( true, _id-nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y>0 ) _Neighbors[1].push_back( std::make_pair( true, _id-nc+1 ) );
+            if ( _worldPos._x>0 ) _Neighbors[1].push_back( std::make_pair( false, _id-1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[1].push_back( std::make_pair( false, _id+nc ) );
+            if ( _worldPos._x>0 && _worldPos._y<nc-1 ) _Neighbors[1].push_back( std::make_pair( false, _id-1+nc ) );
+            // section 2
+            if ( _worldPos._x>0 ) _Neighbors[2].push_back( std::make_pair( true, _id-1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[2].push_back( std::make_pair( true, _id+nc ) );
+            if ( _worldPos._x>0 && _worldPos._y<nc-1 ) _Neighbors[2].push_back( std::make_pair( true, _id+nc-1 ) );
+            if ( _worldPos._x<nc-1 ) _Neighbors[2].push_back( std::make_pair( false, _id+1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[2].push_back( std::make_pair( false, _id-nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y<nc-1 ) _Neighbors[2].push_back( std::make_pair( false, _id+1-nc ) );
+            // section 3
+            if ( _worldPos._x<nc-1 ) _Neighbors[1].push_back( std::make_pair( true, _id+1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[1].push_back( std::make_pair( true, _id+nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y>nc-1 ) _Neighbors[1].push_back( std::make_pair( true, _id+nc+1 ) );
+            if ( _worldPos._x>0 ) _Neighbors[1].push_back( std::make_pair( false, _id-1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[1].push_back( std::make_pair( false, _id-nc ) );
+            if ( _worldPos._x>0 && _worldPos._y>0 ) _Neighbors[1].push_back( std::make_pair( false, _id-1-nc ) );
+        }
+        else
+        {
+            // section 0
+            if ( _worldPos._x<nc-1 ) _Neighbors[0].push_back( std::make_pair( false, _id+1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[0].push_back( std::make_pair( false, _id+nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y<nc-1 ) _Neighbors[0].push_back( std::make_pair( false, _id+1+nc ) );
+            if ( _worldPos._x>0 ) _Neighbors[0].push_back( std::make_pair( true, _id-1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[0].push_back( std::make_pair( true, _id-nc ) );
+            if ( _worldPos._x>0 && _worldPos._y>0 ) _Neighbors[0].push_back( std::make_pair( true, _id-nc-1 ) );
+            // section 1
+            if ( _worldPos._x>0 ) _Neighbors[1].push_back( std::make_pair( false, _id-1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[1].push_back( std::make_pair( false, _id+nc ) );
+            if ( _worldPos._x>0  && _worldPos._y<nc-1 ) _Neighbors[1].push_back( std::make_pair( false, _id-1+nc ) );
+            if ( _worldPos._x<nc-1 ) _Neighbors[1].push_back( std::make_pair( true, _id+1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[1].push_back( std::make_pair( true, _id-nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y>0 ) _Neighbors[1].push_back( std::make_pair( true, _id-nc+1 ) );
+            // section 2
+            if ( _worldPos._x<nc-1 ) _Neighbors[2].push_back( std::make_pair( false, _id+1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[2].push_back( std::make_pair( false, _id-nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y<nc-1 ) _Neighbors[2].push_back( std::make_pair( false, _id+1-nc ) );
+            if ( _worldPos._x>0 ) _Neighbors[2].push_back( std::make_pair( true, _id-1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[2].push_back( std::make_pair( true, _id+nc ) );
+            if ( _worldPos._x>0 && _worldPos._y<nc-1 ) _Neighbors[2].push_back( std::make_pair( true, _id+nc-1 ) );
+            // section 3
+            if ( _worldPos._x>0 ) _Neighbors[3].push_back( std::make_pair( false, _id-1 ) );
+            if ( _worldPos._y>0 ) _Neighbors[3].push_back( std::make_pair( false, _id-nc ) );
+            if ( _worldPos._x>0 && _worldPos._y>0 ) _Neighbors[3].push_back( std::make_pair( false, _id-1-nc ) );
+            if ( _worldPos._x<nc-1 ) _Neighbors[3].push_back( std::make_pair( true, _id+1 ) );
+            if ( _worldPos._y<nc-1 ) _Neighbors[3].push_back( std::make_pair( true, _id+nc ) );
+            if ( _worldPos._x<nc-1 && _worldPos._y>nc-1 ) _Neighbors[3].push_back( std::make_pair( true, _id+nc+1 ) );
+
+        }
+    }
+#else
+#endif
 
     void SpacePartition::stepSection( const int & sectionIndex )
     {
+        std::cout << "SpacePartition::stepSection\n"; exit(1);
         std::stringstream logName;
         logName << "simulation_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " beginning step: " << _world->getCurrentStep( ) << " section: " << sectionIndex );
@@ -224,6 +328,7 @@ namespace Engine
 
     void SpacePartition::sendAgents( AgentsList & agentsToSend )
     {
+        std::cout << "SpacePartition::sendAgents\n"; exit(1);
         if ( _neighbors.size( )==0 )
         {
             return;
@@ -288,6 +393,7 @@ namespace Engine
 
     void SpacePartition::sendOverlapZones( const int & sectionIndex, const bool & entireOverlap )
     {
+        std::cout << "SpacePartition::sendOverlapZones\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_raster_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << "/" << sectionIndex << " sendOverlapZones" );
@@ -374,10 +480,47 @@ namespace Engine
             log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " raster: " << d << " max data sent" );
         }
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " sendMaxOverlapZones ended" );
+        std::cout << _id << " SpacePartition::sendMaxOverlapZones " << _world->getNumberOfRasters( ) << "\n"; exit(1);
+    }
+
+    void SpacePartition::transferOverlapZones( )
+    {
+        std::stringstream logName;
+        logName << "MPI_raster_world_" << _id;
+        log_DEBUG( logName.str( ), getWallTime( ) << " step: "  << _world->getCurrentStep( ) << " sendMaxOverlapZones" );
+        for ( size_t d=0; d<_world->getNumberOfRasters( ); d++ )
+        {
+            if ( !_world->rasterExists( d ) || !_world->isRasterDynamic( d ))
+            {
+                continue;
+            }
+            for ( auto comm : _OverlapAreas.getNeighbors( ) )
+            {
+                int mpi_id = std::get<0>( comm );
+//                Rectangle<int> area = std::get<1>( comm );
+                Rectangle<int> r_ext_area = std::get<2>( comm );
+                Rectangle<int> area = std::get<2>( comm ).intersection( _ownedArea );
+                std::vector<int> sdata;
+                sdata.resize( area.size( ) );
+                int i = 0;
+                for ( auto coord: area )
+                {
+                    sdata.at(i) = _world->getDynamicRaster( d ).getMaxValue( coord-_OverlapAreas.getWorldOrigin( ) );
+                    i++;
+                }
+                //for ( auto coord: area.intersection( _OverlapAreas.getOverlapArea( ) ) )
+                std::cout << _id << " SendRecv " << mpi_id << " elements= " << sdata.size() << "\n";
+                MPI_Barrier( MPI_COMM_WORLD ); exit(0);
+            }
+            log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " sending max raster: " << d );
+            log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " raster: " << d << " max data sent" );
+        }
+        std::cout << "SpacePartition::sendMaxOverlapZones\n"; exit(1);
     }
 
     void SpacePartition::sendGhostAgents( const int & sectionIndex )
     {
+        std::cout << "SpacePartition::sendGhostAgents\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_agents_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " send ghost agents for section index: " << sectionIndex );
@@ -463,6 +606,7 @@ namespace Engine
 
     void SpacePartition::receiveGhostAgents( const int & sectionIndex )
     {
+        std::cout << "SpacePartition::receiveGhostAgents\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_agents_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " receive ghost agents for section index: " << sectionIndex );
@@ -569,6 +713,7 @@ namespace Engine
 
     void SpacePartition::receiveAgents( const int & sectionIndex )
     {
+        std::cout << "SpacePartition::receiveAgents\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_agents_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " receiving agents for section index: " << sectionIndex );
@@ -613,6 +758,7 @@ namespace Engine
 
     void SpacePartition::receiveOverlapData( const int & sectionIndex, const bool & entireOverlap )
     {
+        std::cout << "SpacePartition::receiveOverlapData\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_raster_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: "  << "/" << sectionIndex << _world->getCurrentStep( ) << " receiveOverlapData" );
@@ -663,6 +809,7 @@ namespace Engine
 
     void SpacePartition::receiveMaxOverlapData( )
     {
+        std::cout << "SpacePartition::receiveMaxOverlapData\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_raster_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: "  << _world->getCurrentStep( ) << " receiveMaxOverlapData" );
@@ -692,6 +839,7 @@ namespace Engine
 
     void SpacePartition::clearRequests( bool updateMaxValues )
     {
+        std::cout << "SpacePartition::clearRequests\n"; exit(1);
         std::stringstream logName;
         logName << "MPI_raster_world_" << _id;
         int finished = 0;
@@ -762,6 +910,7 @@ namespace Engine
 
     int SpacePartition::getIdFromPosition( const Point2D<int> & position )
     {
+        std::cout << "SpacePartition::getIdFromPosition\n"; exit(1);
         Point2D<int> nodePosition( position._x/_ownedArea._size._width, position._y/_ownedArea._size._height );
         return nodePosition._y*sqrt( _numTasks )+nodePosition._x;
     }
@@ -775,6 +924,7 @@ namespace Engine
 
     int SpacePartition::getNeighborIndex( const int & id )
     {
+        std::cout << "SpacePartition::getNeighborIndex\n"; exit(1);
         for ( size_t i=0; i<_neighbors.size( ); i++ )
         {
             if ( _neighbors[i] == id )
@@ -789,6 +939,7 @@ namespace Engine
 
     void SpacePartition::executeAgents( )
     {
+        std::cout << "SpacePartition::executeAgents\n"; exit(1);
         std::cout << _world->getId( ) << " n_a=" << _world->getNumberOfAgents( ) << " ov_a=" << _overlapAgents.size( ) << "\n";
         for ( int sectionIndex=0; sectionIndex<4; sectionIndex++ )
         {
@@ -839,11 +990,16 @@ namespace Engine
     void SpacePartition::initOverlappingData( )
     {
         // we need to send the agents and data in overlap zone to adjacent computer nodes
+#ifdef RGT
         sendMaxOverlapZones( );
+        std::cout << "SpacePartition::initOverlappingData 2\n"; exit(1);
         receiveMaxOverlapData( );
         // all nodes must finish receiving max values before receiving current values
         MPI_Barrier( MPI_COMM_WORLD );
         clearRequests( true );
+#else
+        transferOverlapZones( );
+#endif
 
         for ( int sectionIndex=0; sectionIndex<4; sectionIndex++ )
         {
@@ -863,6 +1019,13 @@ namespace Engine
 
     }
 
+    void SpacePartition::abort( )
+    {
+        MPI_Barrier( MPI_COMM_WORLD );
+        MPI_Finalize( );
+        exit(0);
+    }
+
     void SpacePartition::finish( )
     {
         std::stringstream logName;
@@ -880,11 +1043,16 @@ namespace Engine
 
     const Rectangle<int> & SpacePartition::getBoundaries( ) const
     {
+#ifdef RGT
         return _boundaries;
+#else
+        return _OverlapAreas.getOverlapArea( );
+#endif
     }
 
     bool SpacePartition::isCorner( const int & neighbor ) const
     {
+        std::cout << "SpacePartition::isCorner\n"; exit(1);
         Point2D<int> worldPos = getPositionFromId( neighbor );
         Point2D<int> diff = worldPos - _worldPos;
         if ( std::abs( diff._x )==1 && std::abs( diff._y )==1 )
@@ -896,6 +1064,7 @@ namespace Engine
 
     Rectangle<int> SpacePartition::getInternalOverlap( const int & id ) const
     {
+        std::cout << "SpacePartition::getInternalOverlap\n"; exit(1);
         Point2D<int> diff = getPositionFromId( id )-_worldPos;
         // left
 
@@ -1000,6 +1169,7 @@ namespace Engine
 
     Rectangle<int> SpacePartition::getExternalOverlap( const int & id ) const
     {
+        std::cout << "SpacePartition::getExternalOverlap\n"; exit(1);
         Point2D<int> diff = getPositionFromId( id )-_worldPos;
         // left
 
@@ -1091,6 +1261,7 @@ namespace Engine
 
     Rectangle<int> SpacePartition::getOverlap( const int & id, const int & sectionIndex ) const
     {
+        std::cout << "SpacePartition::getOverlap 2\n"; exit(1);
         Point2D<int> diff = getPositionFromId( id )-_worldPos;
         // left
 
@@ -1237,6 +1408,7 @@ namespace Engine
 
     bool SpacePartition::needsToBeUpdated( const int & id, const int & sectionIndex )
     {
+        std::cout << "SpacePartition::needsToBeUpdated\n"; exit(1);
         Point2D<int> diff = getPositionFromId( id )-_worldPos;
         switch( sectionIndex )
         {
@@ -1322,6 +1494,7 @@ namespace Engine
 
     bool SpacePartition::needsToReceiveData( const int & id, const int & sectionIndex )
     {
+        std::cout << "SpacePartition::needsToReceiveData\n"; exit(1);
         Point2D<int> diff = getPositionFromId( id )-_worldPos;
         switch( sectionIndex )
         {
@@ -1412,6 +1585,7 @@ namespace Engine
 
     bool SpacePartition::hasBeenExecuted( const std::string & id ) const
     {
+        std::cout << "SpacePartition::hasBeenExecuted\n"; exit(1);
         if ( _executedAgentsHash.find( id )==_executedAgentsHash.end( ) )
         {
             return false;
@@ -1427,7 +1601,6 @@ namespace Engine
         {
             _overlapAgents.erase( it );
         }
-
         if ( !executedAgent )
         {
             return;
@@ -1448,6 +1621,7 @@ namespace Engine
 
     Agent * SpacePartition::getAgent( const std::string & id )
     {
+        std::cout << "SpacePartition::getAgent\n"; exit(1);
         AgentsList::iterator it = getOwnedAgent( id );
         if ( it!=_world->endAgents( ) )
         {
@@ -1471,6 +1645,7 @@ namespace Engine
 
     void SpacePartition::removeAgent( Agent * agent )
     {
+        std::cout << "SpacePartition::removeAgent\n"; exit(1);
         AgentsList::iterator it = getOwnedAgent( agent->getId( ) );
         if ( it==_world->endAgents( ) )
         {
@@ -1485,6 +1660,7 @@ namespace Engine
 
     void SpacePartition::removeAgents( )
     {
+        std::cout << "SpacePartition::removeAgent\n"; exit(1);
         AgentsList::iterator it=_removedAgents.begin( );
         while( it!=_removedAgents.end( ) )
         {
@@ -1505,6 +1681,7 @@ namespace Engine
 
     AgentsVector SpacePartition::getAgent( const Point2D<int> & position, const std::string & type )
     {
+        std::cout << "SpacePartition::getAgent\n"; exit(1);
         AgentsVector result;
         for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
         {
@@ -1545,6 +1722,7 @@ namespace Engine
 
     bool SpacePartition::willBeRemoved( const std::string & id )
     {
+        std::cout << "SpacePartition::willBeRemoved\n"; exit(1);
         for ( AgentsList::iterator it=_removedAgents.begin( ); it!=_removedAgents.end( ); it++ )
         {
             if ( (*it )->getId( ).compare( id )==0 )
@@ -1557,19 +1735,29 @@ namespace Engine
 
     const Rectangle<int> & SpacePartition::getOwnedArea( ) const
     {
+#ifdef RGT
         return _ownedArea;
+#else
+        return _OverlapAreas.getOwnedArea( );
+#endif
     }
 
     Point2D<int> SpacePartition::getRealPosition( const Point2D<int> & globalPosition ) const
     {
+        std::cout << "SpacePartition::getRealPosition\n"; exit(1);
         return globalPosition-_boundaries._origin;
     }
 
     Point2D<int> SpacePartition::getRandomPosition( ) const
     {
-        Engine::Point2D<int> pos( GeneralState::statistics( ).getUniformDistValue( 0, _ownedArea._size._width-1 ), GeneralState::statistics( ).getUniformDistValue( 0, _ownedArea._size._height-1 ));
+#ifdef RGT
+        Engine::Point2D<int> pos( GeneralState::statistics( ).getUniformDistValue( 0, _ownedArea._size._width-1 ),
+                                  GeneralState::statistics( ).getUniformDistValue( 0, _ownedArea._size._height-1 ) );
         pos += _ownedArea._origin;
         return pos;
+#else
+        return _OverlapAreas.getRandomPosition( );
+#endif
     }
 
     double SpacePartition::getWallTime( ) const
@@ -1579,6 +1767,7 @@ namespace Engine
 
     size_t SpacePartition::getNumberOfTypedAgents( const std::string & type ) const
     {
+        std::cout << "SpacePartition::getNumberOfTypedAgents\n"; exit(1);
         size_t N;
         size_t n = 0;
         AgentsList::iterator it = _world->beginAgents( );
@@ -1594,31 +1783,37 @@ namespace Engine
 
     void SpacePartition::addStringAttribute( const std::string & type, const std::string & key, const std::string & value )
     {
+        std::cout << "SpacePartition::addStringAttribute\n"; exit(1);
         _serializer.addStringAttribute( type, key, value );
     }
 
     void SpacePartition::addIntAttribute( const std::string & type, const std::string & key, int value )
     {
+        std::cout << "SpacePartition::addIntAttribute\n"; exit(1);
         _serializer.addIntAttribute( type, key, value );
     }
 
     void SpacePartition::addFloatAttribute( const std::string & type, const std::string & key, float value )
     {
+        std::cout << "SpacePartition::addFloatAttribute(\n"; exit(1);
         _serializer.addFloatAttribute( type, key, value );
     }
 
     void SpacePartition::serializeAgents( const int & step )
     {
+        std::cout << "SpacePartition::serializeAgents\n"; exit(1);
         _serializer.serializeAgents( step, _world->beginAgents( ), _world->endAgents( ) );
     }
 
     void SpacePartition::serializeRasters( const int & step )
     {
+        std::cout << "SpacePartition::serializeRasters\n"; exit(1);
         _serializer.serializeRasters( step );
     }
 
     int SpacePartition::countNeighbours( Agent * target, const double & radius, const std::string & type )
     {
+        std::cout << "SpacePartition::countNeighbours 1\n"; exit(1);
         int numAgents = for_each( _world->beginAgents( ), _world->endAgents( ), aggregatorCount<std::shared_ptr<Agent> >( radius, *target, type ))._count;
         int numOverlapAgents = for_each( _overlapAgents.begin( ), _overlapAgents.end( ), aggregatorCount<std::shared_ptr<Agent> >( radius, *target, type ))._count;
         return numAgents+numOverlapAgents;
@@ -1626,6 +1821,7 @@ namespace Engine
 
     AgentsVector SpacePartition::getNeighbours( Agent * target, const double & radius, const std::string & type )
     {
+        std::cout << "SpacePartition::getNeighbours 2\n"; exit(1);
         AgentsVector agentsVector = for_each( _world->beginAgents( ), _world->endAgents( ), aggregatorGet<std::shared_ptr<Agent> >( radius, *target, type ))._neighbors;
         AgentsVector overlapAgentsVector =  for_each( _overlapAgents.begin( ), _overlapAgents.end( ), aggregatorGet<std::shared_ptr<Agent> >( radius, *target, type ))._neighbors;
         std::copy( overlapAgentsVector.begin( ), overlapAgentsVector.end( ), std::back_inserter( agentsVector ));
@@ -1635,21 +1831,25 @@ namespace Engine
 
     void SpacePartition::setValue( DynamicRaster & raster, const Point2D<int> & position, int value )
     {
+        std::cout << "SpacePartition::setValue(\n"; exit(1);
         raster.setValue( getRealPosition( position ), value );
     }
 
     int SpacePartition::getValue( const DynamicRaster & raster, const Point2D<int> & position ) const
     {
+        std::cout << "SpacePartition::getValue\n"; exit(1);
         return raster.getValue( getRealPosition( position ));
     }
 
     void SpacePartition::setMaxValue( DynamicRaster & raster, const Point2D<int> & position, int value )
     {
+        std::cout << "SpacePartition::setMaxValue\n"; exit(1);
         raster.setMaxValue( getRealPosition( position ), value );
     }
 
     int SpacePartition::getMaxValue( const DynamicRaster & raster, const Point2D<int> & position ) const
     {
+        std::cout << "SpacePartition::getMaxValue\n"; exit(1);
         return raster.getMaxValue( getRealPosition( position ));
     }
 
