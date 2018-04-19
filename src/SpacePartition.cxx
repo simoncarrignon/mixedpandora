@@ -85,6 +85,7 @@ namespace Engine
     {
         _OverlapAreas = OverlapAreas( _id, _numTasks, _overlap, _world->getConfig( ).getSize( )._width );
         _ownedArea = _OverlapAreas.getOwnedArea( );
+        _boundaries = _OverlapAreas.getOverlapArea( );
 #ifdef KKK
         // position of world related to the complete set of computer nodes
         int worldsPerRow = sqrt( _numTasks );
@@ -486,36 +487,39 @@ namespace Engine
     void SpacePartition::transferOverlapZones( )
     {
         std::stringstream logName;
-        logName << "MPI_raster_world_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " step: "  << _world->getCurrentStep( ) << " sendMaxOverlapZones" );
         for ( size_t d=0; d<_world->getNumberOfRasters( ); d++ )
         {
-            if ( !_world->rasterExists( d ) || !_world->isRasterDynamic( d ))
+            if ( _world->rasterExists( d )  && _world->isRasterDynamic( d ))
             {
-                continue;
-            }
-            for ( auto comm : _OverlapAreas.getNeighbors( ) )
-            {
-                int mpi_id = std::get<0>( comm );
-//                Rectangle<int> area = std::get<1>( comm );
-                Rectangle<int> r_ext_area = std::get<2>( comm );
-                Rectangle<int> area = std::get<2>( comm ).intersection( _ownedArea );
-                std::vector<int> sdata;
-                sdata.resize( area.size( ) );
-                int i = 0;
-                for ( auto coord: area )
+                for ( auto comm : _OverlapAreas.getNeighbors( ) )
                 {
-                    sdata.at(i) = _world->getDynamicRaster( d ).getMaxValue( coord-_OverlapAreas.getWorldOrigin( ) );
-                    i++;
+                    int mpi_id = std::get<0>( comm );
+                    // Intersects neighbour extended area with self owned area and get local coordinates
+                    Rectangle<int> area = std::get<2>( comm ).intersection( _ownedArea ) - _boundaries._origin;
+                    std::vector<int> sdata( area.size()*2 );
+                    std::vector<int> rdata( area.size()*2 );
+                    int i = 0;
+                    for ( auto coord: area )
+                    {
+                        sdata.at(i) = _world->getDynamicRaster( d ).getMaxValue( coord );
+                        sdata.at(i+1) = _world->getDynamicRaster( d ).getValue( coord );
+                        i += 2;
+                    }
+                    MPI_Status status;
+                    MPI_Sendrecv( sdata.data( ), sdata.size(), MPI_INTEGER, mpi_id, eRasterMaxData,
+                                  rdata.data( ), rdata.size(), MPI_INTEGER, mpi_id, eRasterMaxData, MPI_COMM_WORLD, &status );
+                    area = std::get<1>( comm ).intersection( _boundaries ) - _boundaries._origin;
+                    i = 0;
+                    for ( auto coord: area )
+                    {
+                        _world->getDynamicRaster( d ).setMaxValue( coord, rdata[i] );
+                        _world->getDynamicRaster( d ).setValue( coord, rdata[i+1] );
+                        i+=2;
+                    }
                 }
-                //for ( auto coord: area.intersection( _OverlapAreas.getOverlapArea( ) ) )
-                std::cout << _id << " SendRecv " << mpi_id << " elements= " << sdata.size() << "\n";
-                MPI_Barrier( MPI_COMM_WORLD ); exit(0);
             }
-            log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " sending max raster: " << d );
-            log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " raster: " << d << " max data sent" );
         }
-        std::cout << "SpacePartition::sendMaxOverlapZones\n"; exit(1);
     }
 
     void SpacePartition::sendGhostAgents( const int & sectionIndex )
@@ -602,6 +606,61 @@ namespace Engine
             }
         }
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " send ghost agents for section index: " << sectionIndex << " finished" );
+    }
+
+    void SpacePartition::transferGhostAgents( )
+    {
+        for ( auto comm : _OverlapAreas.getNeighbors( ) )
+        {
+            int mpi_id = std::get<0>( comm );
+            Rectangle<int> area = std::get<2>( comm ).intersection( _boundaries ); // Global coordinates
+            for ( MpiFactory::TypesMap::iterator itType=MpiFactory::instance( )->beginTypes( ); itType!=MpiFactory::instance( )->endTypes( ); itType++ )
+            {
+                std::cout << _id << " COMM " << mpi_id << " area=" << area << "  itType= " << itType->first << "\n";
+                MPI_Datatype * agentType = itType->second;
+                AgentsList list;
+                for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
+                {
+                    AgentPtr agent = *it;
+                    if ( area.contains( agent->getPosition( ) ) && agent->isType( itType->first ) )
+                    {
+                        if ( willBeRemoved( agent->getId( ) ) )
+                        { std::cout << "What to do with agents that will be removed\n"; exit(0); }
+                        list.push_back( agent );
+                    }
+                }
+                for ( AgentsList::iterator it=_overlapAgents.begin( ); it!=_overlapAgents.end( ); it++ )
+                {
+                    AgentPtr agent = *it;
+                    if ( area.contains( agent->getPosition( ) ) && agent->isType( itType->first ) ) 
+                    {
+                        if ( willBeRemoved( agent->getId( ) ) )
+                        { std::cout << "What to do with agents that will be removed\n"; exit(0); }
+                        list.push_back( agent );
+                    }
+                }
+                int sAgents = list.size( );
+                int rAgents;
+                MPI_Status status;
+                MPI_Sendrecv( &sAgents, 1, MPI_INTEGER, mpi_id, eGhostAgent,
+                              &rAgents, 1, MPI_INTEGER, mpi_id, eGhostAgent, MPI_COMM_WORLD, &status );
+                std::cout << _id << " COMM " << mpi_id << " S/R= " << sAgents << " " << rAgents << "\n";
+                if (_id< mpi_id)
+                {
+                    for ( AgentsList::iterator it=agentsToNeighbors[i].begin( ); it!=agentsToNeighbors[i].end( ); it++ )
+                    {
+                        Agent * agent = it->get( );
+                        void * package = agent->fillPackage( );
+                        error = MPI_Send( package, 1, *agentType, mpi_id, eGhostAgent, MPI_COMM_WORLD );
+                        delete package;
+                        agent->sendVectorAttributes( mpi_id );
+                    }
+                }
+            }
+        }
+
+
+        std::cout << "SpacePartition::transferGhostAgents\n"; exit(0);
     }
 
     void SpacePartition::receiveGhostAgents( const int & sectionIndex )
@@ -997,10 +1056,6 @@ namespace Engine
         // all nodes must finish receiving max values before receiving current values
         MPI_Barrier( MPI_COMM_WORLD );
         clearRequests( true );
-#else
-        transferOverlapZones( );
-#endif
-
         for ( int sectionIndex=0; sectionIndex<4; sectionIndex++ )
         {
 
@@ -1016,6 +1071,11 @@ namespace Engine
             sendGhostAgents( sectionIndex );
             receiveGhostAgents( sectionIndex );
         }
+#else
+        transferOverlapZones( );
+        transferGhostAgents( );
+#endif
+
 
     }
 
@@ -1722,7 +1782,6 @@ namespace Engine
 
     bool SpacePartition::willBeRemoved( const std::string & id )
     {
-        std::cout << "SpacePartition::willBeRemoved\n"; exit(1);
         for ( AgentsList::iterator it=_removedAgents.begin( ); it!=_removedAgents.end( ); it++ )
         {
             if ( (*it )->getId( ).compare( id )==0 )

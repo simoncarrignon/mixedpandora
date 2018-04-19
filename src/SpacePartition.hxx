@@ -75,12 +75,16 @@ namespace Engine
         void sendMaxOverlapZones( );
 
         void transferOverlapZones( );
+
         // method to copy of agents to neighbours
         void sendGhostAgents( const int & sectionIndex );
 
         // add the agent to overlap agents list, and remove previous instances if they exist
         //void updateOverlapAgent( Agent * agent );
         void receiveGhostAgents( const int & sectionIndex );
+
+        void transferGhostAgents( );
+
         // method to receive agents
         void receiveAgents( const int & sectionIndex );
         // method to receive overlap zones from neighbors that have executed adjacent sections

@@ -162,6 +162,11 @@ public:
         return Rectangle<Type>( rectangle._size, rectangle._origin+dist );
     }
 
+    friend Rectangle<Type> operator-( const Rectangle<Type> & rectangle, const Point2D<Type> & dist )
+    {
+        return Rectangle<Type>( rectangle._size, rectangle._origin-dist );
+    }
+
     Rectangle<Type> clone( ) const
     {
         return Rectangle<int>( _size, _origin );
