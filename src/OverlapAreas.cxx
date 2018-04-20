@@ -44,6 +44,11 @@ namespace Engine
                                     std::max( _worldPos._y*_lsize - _overlap, 0 ),
                                     std::min( (_worldPos._x+1)*_lsize - 1 + _overlap, _gsize - 1 ),
                                     std::min( (_worldPos._y+1)*_lsize - 1 + _overlap, _gsize - 1 ) );
+        _sectionArea[0] = Rectangle<int>( Size<int>( _lsize/2, _lsize/2 ), Point2D<int>( _worldPos._x*_lsize, _worldPos._y*_lsize ) );
+        _sectionArea[1] = _sectionArea[0] + Point2D<int>( _lsize/2, 0 );
+        _sectionArea[2] = _sectionArea[0] + Point2D<int>( 0, _lsize/2 );
+        _sectionArea[3] = _sectionArea[0] + Point2D<int>( _lsize/2, _lsize/2 );
+
         Interval<int> limits = Interval<int>( 0, _dim-1 );
         std::vector<Point2D<int>> increments =
         {

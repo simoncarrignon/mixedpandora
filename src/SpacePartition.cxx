@@ -61,8 +61,6 @@ namespace Engine
         MpiFactory::instance( )->registerTypes( );
         initOverlappingData( );
 
-        std::cout << "SpacePartition::initData\n"; exit(1);
-
         std::stringstream logName;
         logName << "simulation_" << _id;
         log_INFO( logName.str( ), "finished init at: "  << getWallTime( ) );
@@ -253,7 +251,19 @@ namespace Engine
 
     void SpacePartition::stepSection( const int & sectionIndex )
     {
-        std::cout << "SpacePartition::stepSection\n"; exit(1);
+#ifndef ORIG
+        AgentsVector agentsToExecute;
+        Rectangle<int> area = _OverlapAreas.getSectionArea( sectionIndex );
+        for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
+            if ( area.contains( (*it)->getPosition( ) ) && ! hasBeenExecuted( (*it)->getId( ) ) )
+                agentsToExecute.push_back( *it );
+        std::random_shuffle( agentsToExecute.begin( ), agentsToExecute.end( ) );
+        int numExecutedAgents = 0;
+        AgentsList agentsToSend;
+
+        
+#else
+        std::cout << "SpacePartition::stepSection\n"; MPI_Barrier( MPI_COMM_WORLD ); MPI_Finalize( ); exit(0);
         std::stringstream logName;
         logName << "simulation_" << _id;
         log_DEBUG( logName.str( ), getWallTime( ) << " beginning step: " << _world->getCurrentStep( ) << " section: " << sectionIndex );
@@ -303,7 +313,7 @@ namespace Engine
                 agentsToSend.push_back( agent );
 
                 // the agent is no longer property of this world
-                AgentsList::iterator itErase  = getOwnedAgent( agent->getId( ) );
+                AgentsList::iterator itErase  = getOwnedAgentPtr( agent->getId( ) );
                 // it will be deleted
                 _world->eraseAgent( itErase );
                 _overlapAgents.push_back( agent );
@@ -325,6 +335,7 @@ namespace Engine
         log_DEBUG( logName.str( ), getWallTime( ) << " has finished section: " << sectionIndex << " and step: " << _world->getCurrentStep( ) );
 
         log_DEBUG( logName.str( ), getWallTime( ) << " executed step: " << _world->getCurrentStep( ) << " section: " << sectionIndex << " in zone: " << _sections[sectionIndex] << " with num executed agents: " << numExecutedAgents << " total agents: " << std::distance( _world->beginAgents( ), _world->endAgents( ) ) << " and overlap agents: " << _overlapAgents.size( ) );
+#endif
     }
 
     void SpacePartition::sendAgents( AgentsList & agentsToSend )
@@ -608,6 +619,47 @@ namespace Engine
         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " send ghost agents for section index: " << sectionIndex << " finished" );
     }
 
+    void SpacePartition::sendAgentsList( AgentsList list, int mpi_id, MPI_Datatype * agentType )
+    {
+        for ( AgentsList::iterator it=list.begin( ); it!=list.end( ); it++ )
+        {
+            Agent * agent = it->get( );
+            void * package = agent->fillPackage( );
+            int error = MPI_Send( package, 1, *agentType, mpi_id, eGhostAgent, MPI_COMM_WORLD );
+            delete package;
+            agent->sendVectorAttributes( mpi_id );
+        }
+
+    }
+
+    void SpacePartition::receiveAgentsList( int nAgents, int mpi_id, const std::string & type, MPI_Datatype * agentType )
+    {
+        for (int i=0; i< nAgents; i++ )
+        {
+            MPI_Status status;
+            void * package = MpiFactory::instance( )->createDefaultPackage( type );
+            int error = MPI_Recv( package, 1, *agentType, mpi_id, eGhostAgent, MPI_COMM_WORLD, &status );
+            Agent * agent = MpiFactory::instance( )->createAndFillAgent( type, package );
+            delete package;
+            agent->receiveVectorAttributes( mpi_id );
+            AgentsList::iterator it = getGhostAgentPtr( agent->getId( ) );
+            if ( it != _overlapAgents.end( ) )
+                _overlapAgents.erase( it );
+            else
+            {
+                it = getOwnedAgentPtr( agent->getId( ) );
+                if ( it!=_world->endAgents( ) )
+                    _world->eraseAgent( it );
+            }
+            if ( _ownedArea.contains( agent->getPosition( ) ) )
+                _world->addAgent( agent, false );
+            else
+            {
+                _overlapAgents.push_back(  AgentPtr( agent ) );
+            }
+        }
+    }
+
     void SpacePartition::transferGhostAgents( )
     {
         for ( auto comm : _OverlapAreas.getNeighbors( ) )
@@ -616,7 +668,6 @@ namespace Engine
             Rectangle<int> area = std::get<2>( comm ).intersection( _boundaries ); // Global coordinates
             for ( MpiFactory::TypesMap::iterator itType=MpiFactory::instance( )->beginTypes( ); itType!=MpiFactory::instance( )->endTypes( ); itType++ )
             {
-                std::cout << _id << " COMM " << mpi_id << " area=" << area << "  itType= " << itType->first << "\n";
                 MPI_Datatype * agentType = itType->second;
                 AgentsList list;
                 for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
@@ -644,23 +695,18 @@ namespace Engine
                 MPI_Status status;
                 MPI_Sendrecv( &sAgents, 1, MPI_INTEGER, mpi_id, eGhostAgent,
                               &rAgents, 1, MPI_INTEGER, mpi_id, eGhostAgent, MPI_COMM_WORLD, &status );
-                std::cout << _id << " COMM " << mpi_id << " S/R= " << sAgents << " " << rAgents << "\n";
                 if (_id< mpi_id)
                 {
-                    for ( AgentsList::iterator it=agentsToNeighbors[i].begin( ); it!=agentsToNeighbors[i].end( ); it++ )
-                    {
-                        Agent * agent = it->get( );
-                        void * package = agent->fillPackage( );
-                        error = MPI_Send( package, 1, *agentType, mpi_id, eGhostAgent, MPI_COMM_WORLD );
-                        delete package;
-                        agent->sendVectorAttributes( mpi_id );
-                    }
+                    sendAgentsList( list, mpi_id, itType->second );
+                    receiveAgentsList( rAgents, mpi_id, itType->first, itType->second );
+                }
+                else
+                {
+                    receiveAgentsList( rAgents, mpi_id, itType->first, itType->second );
+                    sendAgentsList( list, mpi_id, itType->second );
                 }
             }
         }
-
-
-        std::cout << "SpacePartition::transferGhostAgents\n"; exit(0);
     }
 
     void SpacePartition::receiveGhostAgents( const int & sectionIndex )
@@ -718,7 +764,7 @@ namespace Engine
 
                     // we must check if it is an update of an agent, or a ghost agent
                     bool worldOwnsAgent = false;
-                    AgentsList::iterator it = getOwnedAgent( agent->getId( ) );
+                    AgentsList::iterator it = getOwnedAgentPtr( agent->getId( ) );
                     if ( it!=_world->endAgents( ) )
                     {
                         log_DEBUG( logName.str( ), getWallTime( ) << " step: " << _world->getCurrentStep( ) << " has received update of own agent: " << *it << " in step: " << _world->getCurrentStep( ) );
@@ -998,8 +1044,16 @@ namespace Engine
 
     void SpacePartition::executeAgents( )
     {
-        std::cout << "SpacePartition::executeAgents\n"; exit(1);
-        std::cout << _world->getId( ) << " n_a=" << _world->getNumberOfAgents( ) << " ov_a=" << _overlapAgents.size( ) << "\n";
+        std::cout << _id << " n_a=" << _world->getNumberOfAgents( ) << " ov_a=" << _overlapAgents.size( ) << "\n";
+#ifndef ORIG
+        // Reset Executed Agents map
+        _executedAgentsHash.clear( );
+        for ( int sectionIndex=0; sectionIndex<4; sectionIndex++ )
+        {
+            stepSection( sectionIndex );
+        }
+        std::cout << _id << " SpacePartition::executeAgents\n"; MPI_Barrier( MPI_COMM_WORLD ); MPI_Finalize( ); exit(0);
+#else
         for ( int sectionIndex=0; sectionIndex<4; sectionIndex++ )
         {
             // section index doesn't matter if is the entire overlap
@@ -1044,6 +1098,7 @@ namespace Engine
 
             clearRequests( false );
         }
+#endif
     }
 
     void SpacePartition::initOverlappingData( )
@@ -1645,8 +1700,7 @@ namespace Engine
 
     bool SpacePartition::hasBeenExecuted( const std::string & id ) const
     {
-        std::cout << "SpacePartition::hasBeenExecuted\n"; exit(1);
-        if ( _executedAgentsHash.find( id )==_executedAgentsHash.end( ) )
+        if ( _executedAgentsHash.find( id ) == _executedAgentsHash.end( ) )
         {
             return false;
         }
@@ -1656,7 +1710,7 @@ namespace Engine
     void SpacePartition::agentAdded( AgentPtr agent, bool executedAgent )
     {
         _executedAgentsHash.insert( make_pair( agent->getId( ), agent ));
-        AgentsList::iterator it = getGhostAgent( agent->getId( ) );
+        AgentsList::iterator it = getGhostAgentPtr( agent->getId( ) );
         if ( it!=_overlapAgents.end( ) )
         {
             _overlapAgents.erase( it );
@@ -1667,7 +1721,7 @@ namespace Engine
         }
     }
 
-    AgentsList::iterator SpacePartition::getGhostAgent( const std::string & id )
+    AgentsList::iterator SpacePartition::getGhostAgentPtr( const std::string & id )
     {
         for ( AgentsList::iterator it=_overlapAgents.begin( ); it!=_overlapAgents.end( ); it++ )
         {
@@ -1679,34 +1733,34 @@ namespace Engine
         return _overlapAgents.end( );
     }
 
+    Agent *SpacePartition::getGhostAgent( const std::string & id )
+    {
+        for ( AgentsList::iterator it=_overlapAgents.begin( ); it!=_overlapAgents.end( ); it++ )
+        {
+            if ( (*it )->getId( ).compare( id )==0 )
+            {
+                return it->get( );
+            }
+        }
+        return 0;
+    }
+
     Agent * SpacePartition::getAgent( const std::string & id )
     {
         std::cout << "SpacePartition::getAgent\n"; exit(1);
-        AgentsList::iterator it = getOwnedAgent( id );
-        if ( it!=_world->endAgents( ) )
-        {
-            Agent * agent = it->get( );
-            if ( agent->exists( ) )
-            {
-                return agent;
-            }
-        }
-        it = getGhostAgent( id );
-        if ( it!=_overlapAgents.end( ) )
-        {
-            Agent * agent = it->get( );
-            if ( agent->exists( ) )
-            {
-                return agent;
-            }
-        }
+        Agent *agent = getOwnedAgent( id );
+        if ( agent != 0 && agent->exists( ) )
+            return agent;
+        agent = getGhostAgent( id );
+        if ( agent != 0 && agent->exists( ) )
+            return agent;
         return 0;
     }
 
     void SpacePartition::removeAgent( Agent * agent )
     {
         std::cout << "SpacePartition::removeAgent\n"; exit(1);
-        AgentsList::iterator it = getOwnedAgent( agent->getId( ) );
+        AgentsList::iterator it = getOwnedAgentPtr( agent->getId( ) );
         if ( it==_world->endAgents( ) )
         {
             std::stringstream oss;
@@ -1725,7 +1779,7 @@ namespace Engine
         while( it!=_removedAgents.end( ) )
         {
             Agent * agent = it->get( );
-            AgentsList::iterator itAg = getOwnedAgent( agent->getId( ) );
+            AgentsList::iterator itAg = getOwnedAgentPtr( agent->getId( ) );
             if ( itAg==_world->endAgents( ) )
             {
                 std::stringstream oss;
@@ -1768,7 +1822,19 @@ namespace Engine
         return result;
     }
 
-    AgentsList::iterator SpacePartition::getOwnedAgent( const std::string & id )
+    Agent *SpacePartition::getOwnedAgent( const std::string & id )
+    {
+        for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
+        {
+            if ( (*it )->getId( ).compare( id )==0 )
+            {
+                return it->get( );
+            }
+        }
+        return 0;
+    }
+
+    AgentsList::iterator SpacePartition::getOwnedAgentPtr( const std::string & id )
     {
         for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
         {
@@ -1803,7 +1869,6 @@ namespace Engine
 
     Point2D<int> SpacePartition::getRealPosition( const Point2D<int> & globalPosition ) const
     {
-        std::cout << "SpacePartition::getRealPosition\n"; exit(1);
         return globalPosition-_boundaries._origin;
     }
 
@@ -1826,8 +1891,6 @@ namespace Engine
 
     size_t SpacePartition::getNumberOfTypedAgents( const std::string & type ) const
     {
-        std::cout << "SpacePartition::getNumberOfTypedAgents\n"; exit(1);
-        size_t N;
         size_t n = 0;
         AgentsList::iterator it = _world->beginAgents( );
         while( it!=_world->endAgents( ) )
@@ -1836,37 +1899,33 @@ namespace Engine
             if ( agent->isType( type ) ) n++;
             it++;
         }
+        size_t N;
         MPI_Allreduce( &n, &N, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD );
         return N;
     }
 
     void SpacePartition::addStringAttribute( const std::string & type, const std::string & key, const std::string & value )
     {
-        std::cout << "SpacePartition::addStringAttribute\n"; exit(1);
         _serializer.addStringAttribute( type, key, value );
     }
 
     void SpacePartition::addIntAttribute( const std::string & type, const std::string & key, int value )
     {
-        std::cout << "SpacePartition::addIntAttribute\n"; exit(1);
         _serializer.addIntAttribute( type, key, value );
     }
 
     void SpacePartition::addFloatAttribute( const std::string & type, const std::string & key, float value )
     {
-        std::cout << "SpacePartition::addFloatAttribute(\n"; exit(1);
         _serializer.addFloatAttribute( type, key, value );
     }
 
     void SpacePartition::serializeAgents( const int & step )
     {
-        std::cout << "SpacePartition::serializeAgents\n"; exit(1);
         _serializer.serializeAgents( step, _world->beginAgents( ), _world->endAgents( ) );
     }
 
     void SpacePartition::serializeRasters( const int & step )
     {
-        std::cout << "SpacePartition::serializeRasters\n"; exit(1);
         _serializer.serializeRasters( step );
     }
 
@@ -1896,8 +1955,7 @@ namespace Engine
 
     int SpacePartition::getValue( const DynamicRaster & raster, const Point2D<int> & position ) const
     {
-        std::cout << "SpacePartition::getValue\n"; exit(1);
-        return raster.getValue( getRealPosition( position ));
+        return raster.getValue( getRealPosition( position ) );
     }
 
     void SpacePartition::setMaxValue( DynamicRaster & raster, const Point2D<int> & position, int value )

@@ -26,6 +26,8 @@ namespace Engine
         Rectangle<int> _area;
         Rectangle<int> _ext_area;
 
+        Rectangle<int> _sectionArea[4];
+
         NeightborVector _neighbors;
 
         void init( );
@@ -37,6 +39,7 @@ namespace Engine
 
         const Rectangle<int> & getOwnedArea( ) const;
         const Rectangle<int> & getOverlapArea( ) const;
+        const Rectangle<int> & getSectionArea( int i ) const { return _sectionArea[i]; };
         Point2D<int> & getWorldPosition( );
         Point2D<int> getRandomPosition( ) const;
         Point2D<int> getWorldOrigin( );

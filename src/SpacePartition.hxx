@@ -74,7 +74,6 @@ namespace Engine
         void sendOverlapZones( const int & sectionIndex, const bool & entireOverlap = true );
         void sendMaxOverlapZones( );
 
-        void transferOverlapZones( );
 
         // method to copy of agents to neighbours
         void sendGhostAgents( const int & sectionIndex );
@@ -83,7 +82,8 @@ namespace Engine
         //void updateOverlapAgent( Agent * agent );
         void receiveGhostAgents( const int & sectionIndex );
 
-        void transferGhostAgents( );
+        void sendAgentsList( AgentsList list, int mpi_id, MPI_Datatype * agentType );
+        void receiveAgentsList( int nAgents, int mpi_id, const std::string & type, MPI_Datatype * agentType );
 
         // method to receive agents
         void receiveAgents( const int & sectionIndex );
@@ -101,6 +101,8 @@ namespace Engine
         void setSectionNeighbours( int nc );
 #else
         OverlapAreas _OverlapAreas;
+        void transferOverlapZones( );
+        void transferGhostAgents( );
 #endif
 #endif
 
@@ -151,11 +153,13 @@ namespace Engine
         //! this method returns true if the agent is already in executedAgents list
         bool hasBeenExecuted( const std::string & id ) const;
         //! return an agent, if it is in the list of ghosts
-        AgentsList::iterator getGhostAgent( const std::string & id );
+        AgentsList::iterator getGhostAgentPtr( const std::string & id );
+        Agent *getGhostAgent( const std::string & id );
         //! this list has the agents that need to be removed at the end of step.
         AgentsList _removedAgents;
         //! return an agent, if it is in the list of owned
-        AgentsList::iterator getOwnedAgent( const std::string & id );
+        AgentsList::iterator getOwnedAgentPtr( const std::string & id );
+        Agent *getOwnedAgent( const std::string & id );
 
         //! true if the agent is in the list of agents to remove
         bool willBeRemoved( const std::string & id );
