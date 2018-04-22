@@ -137,8 +137,12 @@ namespace Engine
         void stablishBoundaries( );
         //! define original position of world, given overlap, size and id.
         void stablishWorldPosition( );
+#ifdef ORIG
         //! applies next simulation step on the Section of the space identified by parameter 'sectionIndex'.
         void stepSection( const int & sectionIndex );
+#else
+        void stepSection( const int & sectionIndex, AgentsVector &agentsToExecute );
+#endif
 
         //! returns the id of the section that contains the point 'position'
         int getIdFromPosition( const Point2D<int> & position );

@@ -45,6 +45,7 @@ namespace Engine
         Point2D<int> getWorldOrigin( );
         NeightborVector &getNeighbors( );
 
+        int getSection( Point2D<int> pos ) const ;
     }; // class OverlapAreas
 }
 #endif

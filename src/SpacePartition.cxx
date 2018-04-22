@@ -249,20 +249,9 @@ namespace Engine
 #else
 #endif
 
+#ifdef ORIG
     void SpacePartition::stepSection( const int & sectionIndex )
     {
-#ifndef ORIG
-        AgentsVector agentsToExecute;
-        Rectangle<int> area = _OverlapAreas.getSectionArea( sectionIndex );
-        for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
-            if ( area.contains( (*it)->getPosition( ) ) && ! hasBeenExecuted( (*it)->getId( ) ) )
-                agentsToExecute.push_back( *it );
-        std::random_shuffle( agentsToExecute.begin( ), agentsToExecute.end( ) );
-        int numExecutedAgents = 0;
-        AgentsList agentsToSend;
-
-        
-#else
         std::cout << "SpacePartition::stepSection\n"; MPI_Barrier( MPI_COMM_WORLD ); MPI_Finalize( ); exit(0);
         std::stringstream logName;
         logName << "simulation_" << _id;
@@ -335,8 +324,26 @@ namespace Engine
         log_DEBUG( logName.str( ), getWallTime( ) << " has finished section: " << sectionIndex << " and step: " << _world->getCurrentStep( ) );
 
         log_DEBUG( logName.str( ), getWallTime( ) << " executed step: " << _world->getCurrentStep( ) << " section: " << sectionIndex << " in zone: " << _sections[sectionIndex] << " with num executed agents: " << numExecutedAgents << " total agents: " << std::distance( _world->beginAgents( ), _world->endAgents( ) ) << " and overlap agents: " << _overlapAgents.size( ) );
-#endif
     }
+#else
+    void SpacePartition::stepSection( const int & sectionIndex, AgentsVector &agentsToExecute )
+    {
+        std::random_shuffle( agentsToExecute.begin( ), agentsToExecute.end( ) );
+        std::cout << _id << " " << sectionIndex << " pacePartition::stepSection " << agentsToExecute.size() << "\n";
+        int numExecutedAgents = 0;
+        AgentsList agentsToSend;
+        for ( auto agent: agentsToExecute )
+        {
+            agent->updateKnowledge( );
+            agent->selectActions( );
+        }
+        for ( auto agent: agentsToExecute )
+        {
+            agent->executeActions( );
+            agent->updateState( );
+        }
+    }
+#endif
 
     void SpacePartition::sendAgents( AgentsList & agentsToSend )
     {
@@ -1048,9 +1055,18 @@ namespace Engine
 #ifndef ORIG
         // Reset Executed Agents map
         _executedAgentsHash.clear( );
+
+        AgentsVector agentsToExecute[4];
+        for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
+            if ( ! hasBeenExecuted( (*it)->getId( ) ) )
+                agentsToExecute[_OverlapAreas.getSection( (*it)->getPosition( ) )].push_back( *it );
+
+
         for ( int sectionIndex=0; sectionIndex<4; sectionIndex++ )
         {
-            stepSection( sectionIndex );
+            stepSection( sectionIndex, agentsToExecute[sectionIndex] );
+        
+            agentsToExecute[sectionIndex].clear( );
         }
         std::cout << _id << " SpacePartition::executeAgents\n"; MPI_Barrier( MPI_COMM_WORLD ); MPI_Finalize( ); exit(0);
 #else

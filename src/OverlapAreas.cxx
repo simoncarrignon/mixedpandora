@@ -107,4 +107,14 @@ namespace Engine
     {
         return _neighbors;
     }
+
+    int OverlapAreas::getSection( Point2D<int> pos ) const
+    {
+        if ( _sectionArea[0].contains( pos ) ) return 0;
+        if ( _sectionArea[1].contains( pos ) ) return 1;
+        if ( _sectionArea[2].contains( pos ) ) return 2;
+        if ( _sectionArea[3].contains( pos ) ) return 3;
+        return -1;
+    }
+
 }
