@@ -25,6 +25,7 @@ namespace Engine
 
         Rectangle<int> _area;
         Rectangle<int> _ext_area;
+        Rectangle<int> _inn_area;
 
         Rectangle<int> _sectionArea[4];
 
@@ -38,6 +39,7 @@ namespace Engine
         ~OverlapAreas( );
 
         const Rectangle<int> & getOwnedArea( ) const;
+        const Rectangle<int> & getInnerArea( ) const;
         const Rectangle<int> & getOverlapArea( ) const;
         const Rectangle<int> & getSectionArea( int i ) const { return _sectionArea[i]; };
         Point2D<int> & getWorldPosition( );

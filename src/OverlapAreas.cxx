@@ -40,6 +40,8 @@ namespace Engine
         _worldPos = Point2D<int>( _pid%_dim, _pid/_dim );
 
         _area = Rectangle<int>( Size<int>( _lsize, _lsize ), Point2D<int>( _worldPos._x*_lsize, _worldPos._y*_lsize ) );
+        _inn_area = Rectangle<int>( Size<int>( _lsize - 2*_overlap, _lsize - 2*_overlap ),
+                                    Point2D<int>( _worldPos._x*_lsize  + _overlap, _worldPos._y*_lsize + _overlap ) );
         _ext_area = Rectangle<int>( std::max( _worldPos._x*_lsize - _overlap, 0 ),
                                     std::max( _worldPos._y*_lsize - _overlap, 0 ),
                                     std::min( (_worldPos._x+1)*_lsize - 1 + _overlap, _gsize - 1 ),
@@ -79,6 +81,11 @@ namespace Engine
     const Rectangle<int> & OverlapAreas::getOwnedArea( ) const
     {
         return _area;
+    }
+
+    const Rectangle<int> & OverlapAreas::getInnerArea( ) const
+    {
+        return _inn_area;
     }
 
     const Rectangle<int> & OverlapAreas::getOverlapArea( ) const

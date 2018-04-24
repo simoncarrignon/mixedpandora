@@ -93,16 +93,34 @@ namespace Engine
         void receiveMaxOverlapData( );
 
         //! id's of neighboring computer nodes
-        std::vector<int> _neighbors;
 #ifdef ORIG
+        std::vector<int> _neighbors;
 #else
 #ifdef RGT
         std::vector<std::pair<bool,int>> _Neighbors[4];
         void setSectionNeighbours( int nc );
 #else
-        OverlapAreas _OverlapAreas;
-        void transferOverlapZones( );
-        void transferGhostAgents( );
+        int            _nearby[4];
+        char           _size[4];
+        Rectangle<int> _nb_area[4];
+        Rectangle<int> _nb_exta[4];
+
+        bool _neighbors[4];
+
+        Rectangle<int> _left_top;
+        Rectangle<int> _left_bot;
+        Rectangle<int> _top_bou;
+        Rectangle<int> _top_broad;
+        Rectangle<int> _right_top;
+        Rectangle<int> _right_bot;
+
+//        OverlapAreas _OverlapAreas;
+
+
+        void reduceOverlapZones( );
+        void reduceGhostAgents( );
+//        void migrateAgent( AgentPtr agent );
+//        Rectangle<int> _inn_area;
 #endif
 #endif
 

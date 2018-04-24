@@ -139,6 +139,14 @@ public:
 
         return result;
     }
+    
+    Rectangle<Type> reSize( const Size<Type> & size )
+    {
+        Rectangle<Type> result;
+        result._origin = _origin;
+        result._size = size;
+        return result;
+    }
 
     int size( )
     {
@@ -166,6 +174,17 @@ public:
     {
         return Rectangle<Type>( rectangle._size, rectangle._origin-dist );
     }
+
+    friend Rectangle<Type> operator+( const Rectangle<Type> & rectangle, const Size<Type> & size )
+    {
+        return Rectangle<Type>( rectangle._size+size, rectangle._origin );
+    }
+
+    friend Rectangle<Type> operator-( const Rectangle<Type> & rectangle, const Size<Type> & size )
+    {
+        return Rectangle<Type>( rectangle._size-size, rectangle._origin );
+    }
+
 
     Rectangle<Type> clone( ) const
     {
