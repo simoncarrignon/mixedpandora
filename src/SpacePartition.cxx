@@ -69,6 +69,7 @@ namespace Engine
     void SpacePartition::checkOverlapSize( )
     {
         std::cout << "SpacePartition::checkOverlapSize\n"; exit(1);
+#ifdef RGT
         int subfieldSizeX = _ownedArea._size._width/2;
         int subfieldSizeY = _ownedArea._size._height/2;
         if ( _overlap*2>subfieldSizeX || _overlap*2>subfieldSizeY )
@@ -77,10 +78,15 @@ namespace Engine
             oss << "SpacePartition::checkOverlapSize- subfield sizes: " << subfieldSizeX << "/" << subfieldSizeY << " from global: " << _world->getConfig( ).getSize( ) << " and owned area: " << _ownedArea << " must be at least twice the value of overlap: " << _overlap << " to avoid conflicts between non adjacent subfields";
             throw Exception( oss.str( ) );
         }
+#endif
     }
 
     void SpacePartition::stablishBoundaries( )
     {
+        _mpiOverlap = new OverlapAreas( _id, _numTasks, _world->getConfig( ).getSize( )._width, _overlap );
+        _ownedArea = _mpiOverlap->getArea( );
+        _boundaries = _mpiOverlap->getBoundaries( );
+#ifdef RGT
         int dim = sqrt( _numTasks );
         if ( dim*dim != _numTasks )
         {
@@ -104,6 +110,7 @@ namespace Engine
         }
         Rectangle<int> global = Rectangle<int>( 0, 0, gsize-1, gsize-1 );
         _worldPos = Point2D<int>( _id%dim, _id/dim );
+
         _ownedArea = Rectangle<int>( Size<int>( lsize, lsize ), Point2D<int>( _worldPos._x*lsize, _worldPos._y*lsize ) );
         _boundaries = global.intersection( _ownedArea - Point2D<int>( _overlap, _overlap ) + Size<int>( 2*_overlap, 2*_overlap ) );
 
@@ -164,7 +171,7 @@ namespace Engine
 //        if ( _neighbors[0] )
 //            _left_bound = 
 
-
+#endif
 
 //        _inn_area = _OverlapAreas.getInnerArea( );
 //        _boundaries = _OverlapAreas.getOverlapArea( );
@@ -621,37 +628,59 @@ namespace Engine
 #endif
     }
 
+    void SpacePartition::sendOverlapZone( Rectangle<int> area, int dst )
+    {
+        std::vector<int> sdata( area.size()*2*_rasters.size() );
+        area = area - _boundaries._origin;
+        int i = 0;
+        for ( auto raster: _rasters )
+        {
+            for ( auto coord: area )
+            {
+                sdata.at(i) = raster->getMaxValue( coord );
+                sdata.at(i+1) = raster->getValue( coord );
+                i += 2;
+            }
+        }
+        MPI_Status status;
+        MPI_Send( sdata.data( ), sdata.size(), MPI_INTEGER, dst, eRasterMaxData, MPI_COMM_WORLD );
+    }
+
+    void SpacePartition::receiveOverlapZone( Rectangle<int> area, int src )
+    {
+        std::vector<int> rdata( area.size()*2*_rasters.size() );
+        MPI_Status status;
+        MPI_Recv( rdata.data( ), rdata.size(), MPI_INTEGER, src, eRasterMaxData, MPI_COMM_WORLD, &status );
+        area = area - _boundaries._origin;
+        int i = 0;
+        for ( auto raster: _rasters )
+        {
+            for ( auto coord: area )
+            {
+                raster->setMaxValue( coord, rdata[i] );
+                raster->setValue( coord, rdata[i+1] );
+                i+=2;
+            }
+        }
+    }
 
     void SpacePartition::reduceOverlapZones( )
     {
-        for ( size_t d=0; d<_world->getNumberOfRasters( ); d++ )
+        Overlap_st *b;
+        // Send Right / Recv left
+        if ( _mpiOverlap->isEven( ) )
         {
-            if ( ! _world->rasterExists( d )  || !_world->isRasterDynamic( d ) ) continue;
-            for ( int p=0; p< 4; p++ )
-            {
-                if ( _nearby[p] == -1 ) continue;
-                Rectangle<int> area = _nb_area[p] - _boundaries._origin;
-                std::vector<int> sdata( area.size()*2 );
-                std::vector<int> rdata( area.size()*2 );
-                int i = 0;
-                for ( auto coord: area )
-                {
-                    sdata.at(i) = _world->getDynamicRaster( d ).getMaxValue( coord );
-                    sdata.at(i+1) = _world->getDynamicRaster( d ).getValue( coord );
-                    i += 2;
-                }
-                MPI_Status status;
-                MPI_Sendrecv( sdata.data( ), sdata.size(), MPI_INTEGER, _nearby[p], eRasterMaxData,
-                              rdata.data( ), rdata.size(), MPI_INTEGER, _nearby[p], eRasterMaxData, MPI_COMM_WORLD, &status );
-                area = _nb_exta[p] - _boundaries._origin;
-                i = 0;
-                for ( auto coord: area )
-                {
-                    _world->getDynamicRaster( d ).setMaxValue( coord, rdata[i] );
-                    _world->getDynamicRaster( d ).setValue( coord, rdata[i+1] );
-                    i+=2;
-                }
-            }
+            if ( ( b = _mpiOverlap->getLeft( ) ) != 0 ) receiveOverlapZone( b->_bound, b->_n );
+            if ( ( b = _mpiOverlap->getRight( ) ) != 0 ) sendOverlapZone( b->_local, b->_n );
+            if ( ( b = _mpiOverlap->getTop( ) ) != 0 ) receiveOverlapZone( b->_bound, b->_n );
+            if ( ( b = _mpiOverlap->getBottom( ) ) != 0 ) sendOverlapZone( b->_local, b->_n );
+        }
+        else
+        {
+            if ( ( b = _mpiOverlap->getRight( ) ) != 0 ) sendOverlapZone( b->_local, b->_n );
+            if ( ( b = _mpiOverlap->getLeft( ) ) != 0 ) receiveOverlapZone( b->_bound, b->_n );
+            if ( ( b = _mpiOverlap->getBottom( ) ) != 0 ) sendOverlapZone( b->_local, b->_n );
+            if ( ( b = _mpiOverlap->getTop( ) ) != 0 ) sendOverlapZone( b->_local, b->_n );
         }
     }
 
@@ -758,6 +787,8 @@ namespace Engine
 
     void SpacePartition::receiveAgentsList( int nAgents, int mpi_id, const std::string & type, MPI_Datatype * agentType )
     {
+        std::cout << _id << " receiveAgentsList\n"; exit(0);
+#ifdef NEW
         for (int i=0; i< nAgents; i++ )
         {
             MPI_Status status;
@@ -766,6 +797,7 @@ namespace Engine
             Agent * agent = MpiFactory::instance( )->createAndFillAgent( type, package );
             delete package;
             agent->receiveVectorAttributes( mpi_id );
+            std::cout << _id << " " << agent->getId( ) << " -- " << mpi_id << " WORLD " << "\n";
             AgentsList::iterator it = getGhostAgentPtr( agent->getId( ) );
             if ( it != _overlapAgents.end( ) )
                 _overlapAgents.erase( it );
@@ -782,23 +814,70 @@ namespace Engine
                 _overlapAgents.push_back(  AgentPtr( agent ) );
             }
         }
+#endif
+    }
+
+    void SpacePartition::sendGhostAgents( Rectangle<int> area, int dst )
+    {
+        std::cout << _id << " SEND to " << dst << "\n";
+    }
+
+    void SpacePartition::reciveGhostAgents( int src )
+    {
+        std::cout << _id << " RECV from " << src << "\n";
     }
 
     void SpacePartition::reduceGhostAgents( )
     {
-        AgentsVector ghostAgents[4];
+        AgentsVector lateralAgents;
+        AgentsVector verticalAgents;
+        Overlap_st *lat = _mpiOverlap->getTopRight( );
+        Overlap_st *ver = _mpiOverlap->getBottom( );
+        for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )+
+        -
+
+        // Send Right / Recv left
+        if ( _mpiOverlap->isEven( ) )
+        {
+            if ( ( b = _mpiOverlap->getTopLeft( ) ) != 0 ) reciveGhostAgents( b->_n );
+            if ( ( b = _mpiOverlap->getTopRight( ) ) != 0 ) sendGhostAgents( b->_local, b->_n );
+            if ( ( b = _mpiOverlap->getTop( ) ) != 0 ) reciveGhostAgents( b->_n );
+            if ( ( b = _mpiOverlap->getBottom( ) ) != 0 ) sendGhostAgents( b->_local, b->_n );
+        }
+        else
+        {
+            if ( ( b = _mpiOverlap->getTopRight( ) ) != 0 ) sendGhostAgents( b->_local, b->_n );
+            if ( ( b = _mpiOverlap->getTopLeft( ) ) != 0 ) reciveGhostAgents( b->_n );
+            if ( ( b = _mpiOverlap->getBottom( ) ) != 0 ) sendGhostAgents( b->_local, b->_n );
+            if ( ( b = _mpiOverlap->getTop( ) ) != 0 ) reciveGhostAgents( b->_n );
+        }
+        abort( );
+    }
+
+
+#ifdef RGT
+    void SpacePartition::reduceGhostAgents( )
+    {
+        int nBounds = _mpiOverlap->getNumOfBounds( );
+        std::vector<Rectangle<int>> areas =  _mpiOverlap->getAreas( );
+        AgentsVector ghostAgents[nBounds];
         for ( AgentsList::iterator it=_world->beginAgents( ); it!=_world->endAgents( ); it++ )
         {
-            AgentPtr agent = *it;
-            for ( int i= 0; i< 4; i++ )
+            for ( size_t i= 0; i < nBounds; i++ )
             {
-                if ( _nearby[i]!=-1 && _nb_area[i].contains( agent->getPosition( ) ) )
+                if ( areas[i].contains( (*it)->getPosition( ) ) )
                 {
-                    ghostAgents[i].push_back( agent );
+                    ghostAgents[i].push_back( *it );
                     break;
                 }
             }
         }
+        for ( auto vec: ghostAgents )
+            std::cout << _id << " -- " << vec.size() << "\n";
+        
+
+        abort();
+
         for ( int i= 0; i< 4; i++ )
         {
             if ( _nearby[i] != -1 )
@@ -823,14 +902,13 @@ namespace Engine
                     }
                     else
                     {
-                        receiveAgentsList( rAgents, mpi_id, itType->first, itType->second );
-                        sendAgentsList( list, mpi_id, itType->second );
+                        receiveAgentsList( rAgents, _nearby[i], itType->first, itType->second );
+                        sendAgentsList( list, _nearby[i], itType->second );
                     }
                 }
             }
         }
         abort( );
-#ifdef RGT
         for ( auto comm : _OverlapAreas.getNeighbors( ) )
         {
             int mpi_id = std::get<0>( comm );
@@ -876,8 +954,8 @@ namespace Engine
                 }
             }
         }
-#endif
     }
+#endif
 
     void SpacePartition::receiveGhostAgents( const int & sectionIndex )
     {
@@ -1193,8 +1271,10 @@ namespace Engine
     int SpacePartition::getIdFromPosition( const Point2D<int> & position )
     {
         std::cout << "SpacePartition::getIdFromPosition\n"; exit(1);
+#ifdef KKK
         Point2D<int> nodePosition( position._x/_ownedArea._size._width, position._y/_ownedArea._size._height );
         return nodePosition._y*sqrt( _numTasks )+nodePosition._x;
+#endif
     }
 
     Point2D<int> SpacePartition::getPositionFromId( const int & id ) const
@@ -1318,6 +1398,9 @@ namespace Engine
             receiveGhostAgents( sectionIndex );
         }
 #else
+        for ( size_t d=0; d<_world->getNumberOfRasters( ); d++ )
+            if ( _world->rasterExists( d )  && _world->isRasterDynamic( d ) )
+                _rasters.push_back( &_world->getDynamicRaster( d ) );
         reduceOverlapZones( );
         reduceGhostAgents( );
 #endif

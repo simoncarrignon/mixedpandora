@@ -100,8 +100,10 @@ namespace Engine
         std::vector<std::pair<bool,int>> _Neighbors[4];
         void setSectionNeighbours( int nc );
 #else
+        OverlapAreas  *_mpiOverlap;
+        std::vector<DynamicRaster *> _rasters;
+
         int            _nearby[4];
-        char           _size[4];
         Rectangle<int> _nb_area[4];
         Rectangle<int> _nb_exta[4];
 
@@ -116,11 +118,15 @@ namespace Engine
 
 //        OverlapAreas _OverlapAreas;
 
-
+        void sendOverlapZone( Rectangle<int> area, int dest );
+        void receiveOverlapZone( Rectangle<int> area, int src );
         void reduceOverlapZones( );
+
         void reduceGhostAgents( );
-//        void migrateAgent( AgentPtr agent );
-//        Rectangle<int> _inn_area;
+        void sendGhostAgents( Rectangle<int> area, int dst );
+        void reciveGhostAgents( int src );
+
+
 #endif
 #endif
 
