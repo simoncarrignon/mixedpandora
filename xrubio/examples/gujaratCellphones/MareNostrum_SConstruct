@@ -1,0 +1,62 @@
+nameProgram = 'gujaratCellphones'
+
+agents = ['Herder', 'Village']
+world = 'HerderWorld'
+namespaceAgents = ['GujaratCellphones', 'GujaratCellphones']
+
+srcFiles = ['main.cxx', 'Herder.cxx', 'HerderWorld.cxx','HerderWorldConfig.cxx', 'Village.cxx', 'Climate.cxx', 'HerderState.cxx', 'DecisionModel.cxx', 'MoveAction.cxx']
+
+import os, sys
+from subprocess import call
+
+sys.path.append('/home/bsc21/bsc21887/pandora/scripts/')
+import generateMpi 
+
+release = ARGUMENTS.get('release', 1)
+extremeDebug = ARGUMENTS.get('edebug', 0)
+useMpi = ARGUMENTS.get('mpi', 1)
+
+if int(useMpi) == 1:
+	env = Environment(ENV=os.environ, CXX='mpicxx')
+else:
+	env = Environment(ENV=os.environ, CXX='g++')
+
+generateMPICodeBuilder = Builder(action=generateMpi.execute)
+env.Append( BUILDERS = {'GenerateMPICode' : generateMPICodeBuilder})
+
+linkFlags = Split('-fopenmp')
+libs = Split('tinyxml pthread')
+if int(release) == 0:
+	env['CCFLAGS'] = Split('-g -O0 -Wall -DTIXML_USE_STL -fopenmp -DPANDORADEBUG -DMPICH_IGNORE_CXX_SEEK -std=c++0x')
+	if int(extremeDebug)==1:
+		env['CCFLAGS'] += ['-DPANDORAEDEBUG']
+	libs += ['pandorad']
+else:
+	env['CCFLAGS'] = Split('-O3 -DTIXML_USE_STL -fopenmp -DMPICH_IGNORE_CXX_SEEK -std=c++0x')
+	libs += ['pandora']
+
+if int(useMpi)==1:
+	env['CCFLAGS'] += ['-DPANDORAMPI']
+
+includeDirs = Split('./ /home/bsc21/bsc21887/pandora/ /home/bsc21/bsc21887/libs/libmdp')
+includeDirs += ['/apps/HDF5/1.8.10-mpi/OPENMPI/include']
+includeDirs += ['/apps/BOOST/1_52_0_py_3.3.0/include/']
+includeDirs += ['/apps/TINYXML/2.6.2/include']
+includeDirs += ['/apps/GDAL/1.9.2/include']
+
+libDirs = Split('/home/bsc21/bsc21887/pandora/ /apps/HDF5/1.8.10-mpi/OPENMPI/lib /apps/GDAL/1.9.2/lib /apps/TINYXML/2.6.2/lib')
+libDirs += ['/apps/BOOST/1_52_0_py_3.3.0/lib/']
+
+# add the list of mpi code that must be generated & compiled
+mpiAgentsSrc = ['mpiCode/FactoryCode.cxx']
+agentsSrc = ['main.cxx']
+for agent in agents:	
+	if agent != '':
+		agentsSrc.append(agent+".cxx")
+		mpiAgentsSrc.append("mpiCode/"+agent+"_mpi.cxx")
+
+env['namespaces'] = namespaceAgents
+env.GenerateMPICode( target=mpiAgentsSrc, source=agentsSrc)
+env.Depends(world+'.hxx',mpiAgentsSrc)
+env.Program(nameProgram, srcFiles+mpiAgentsSrc, CPPPATH=includeDirs, LIBS=libs, LIBPATH=libDirs, LINKFLAGS=linkFlags)
+

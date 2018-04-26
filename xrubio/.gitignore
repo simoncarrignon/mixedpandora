@@ -1,0 +1,47 @@
+
+*.log
+
+# Compiled source #
+*.o
+*.os
+*.sconsign.dblite
+pandora/build/
+pandora/build_py/
+*.swp
+*.so
+*.pyc
+*.csv
+*.abm
+*.h5
+*moc_**
+*mpiCode*
+
+.sconf_temp/
+bin/cassandra
+cassandra/Makefile
+cassandra/qrc_cassandra.cpp
+cassandra/ui_AgentAnalysis.h
+cassandra/ui_AgentConfigurator.h
+cassandra/ui_ColorInterval.h
+cassandra/ui_HeatMapDialog.h
+cassandra/ui_Laboratory.h
+cassandra/ui_LoadingProgressBar.h
+cassandra/ui_RasterAnalysis.h
+cassandra/ui_RasterAnalysisSelection.h
+cassandra/ui_RasterConfigurator.h
+cassandra/ui_RunProcess.h
+cassandra/ui_Settings.h
+cassandra/ui_TimeSeriesDialog.h
+cassandra/ui_TraitAnalysisSelection.h
+examples/randomWalkers/randomWalkers
+src/pyPandora/pyBindings.os
+utils/MpiStubCode.os
+# Temporal folders
+.sconf_temp
+
+# Build folders
+lib
+build/
+buildDebug/
+buildDebug_py/
+build_py/
