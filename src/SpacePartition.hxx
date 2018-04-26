@@ -123,9 +123,11 @@ namespace Engine
         void reduceOverlapZones( );
 
         void reduceGhostAgents( );
-        void sendGhostAgents( Rectangle<int> area, int dst );
-        void reciveGhostAgents( int src );
+        void sendGhostAgents( int dst, std::map<std::string,AgentsVector> agents );
+        void reciveGhostAgents( int src, bool lateral );
 
+        AgentsList _verticalAgents;
+        AgentsList _lateralAgents;
 
 #endif
 #endif
@@ -136,8 +138,9 @@ namespace Engine
         std::vector<Rectangle<int> > _sections;
 
         //! list of agents owned by other nodes in overlapping positions
+#ifdef ORIG
         AgentsList _overlapAgents;
-
+#endif
         //! this method returns true if neighbor is corner of _id
         bool isCorner( const int & neighbor ) const;
 
@@ -247,9 +250,13 @@ namespace Engine
 
         friend class Serializer;
 
+#ifdef ORIG
         size_t getNumberOfOverlapAgents( ) const { return _overlapAgents.size( ); }
         AgentsList::const_iterator beginOverlapAgents( ) const{ return _overlapAgents.begin( ); }
         AgentsList::const_iterator endOverlapAgents( ) const{ return _overlapAgents.end( ); }
+#else
+        size_t getNumberOfOverlapAgents( ) const { return _lateralAgents.size( )+_verticalAgents.size( ); }
+#endif
     };
 } // namespace Engine
 #endif // __SpacePartition_hxx__

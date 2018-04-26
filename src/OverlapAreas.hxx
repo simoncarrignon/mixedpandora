@@ -68,7 +68,7 @@ namespace Engine
         Overlap_st *getBottom( ) { return _pos._y < _dim-1 ? &_bottom : 0; }
 
         Overlap_st *getTopLeft( ) { return _pos._x > 0 ? &_topleft : 0; }
-        Overlap_st *getTopRight( ) { return _pos._x > 0 ? &_topright : 0; }
+        Overlap_st *getTopRight( ) { return _pos._x < _dim-1 ? &_topright : 0; }
 
         bool isLeft( ) { return _pos._x > 0; }
         bool isRight( ) { return _pos._x < _dim-1; }

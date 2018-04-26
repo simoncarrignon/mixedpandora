@@ -32,60 +32,59 @@ namespace Engine
         _area = Rectangle<int>( Size<int>( lsize, lsize ), _pos*lsize );
         _boun = global.intersection( _area + Size<int>( 2*over, 2*over) - Point2D<int>(over,over) );
 
-        // LEFT BORDER
-        if ( isLeft( ) )
-        {
-            _l_neig = id - 1;
-            _l_area = Rectangle<int>( _area.left( ), _area.top( ), _area.left( )+over-1, _area.bottom( ) );
-            _l_boun = _l_area - Point2D<int>( over, 0 );
-            _left._n = _l_neig;
-            _left._local = _l_area;
-            _left._bound = _l_boun;
-            _topleft._n = _left._n;
-            _topleft._local = _left._local.reSize( Size<int>( lsize/2, over ) );
-            _topleft._bound = _left._bound.reSize( Size<int>( lsize/2, over ) );
-         }
-        MPI_Barrier( MPI_COMM_WORLD );
-
-        // RIGHT BORDER
-        if ( isRight( ) )
-        {
-            _r_neig = id + 1;
-            _r_area = Rectangle<int>( _area.right( ) - over + 1, _area.top( ), _area.right( ), _area.bottom( ) );
-            _r_boun = _r_area + Point2D<int>( over, 0 );
-            _right._n = _r_neig;
-            _right._local = _r_area;
-            _right._bound = _r_boun;
-
-            _topright._n = _right._n;
-            _topright._local = _right._local.reSize( Size<int>( lsize/2, over ) );
-            _topright._bound = _right._bound.reSize( Size<int>( lsize/2, over ) );
-        }
-        MPI_Barrier( MPI_COMM_WORLD );
-        
         // TOP BORDER
         if ( isTop( ) )
         {
             _t_neig = id - _dim;
-            _t_area = Rectangle<int>( _boun.left( ), _area.top( ), _boun.right( ), _area.top( ) + over - 1 );
+            _t_area = Rectangle<int>( _area.left( ), _area.top( ), _area.right( ), _area.top( ) + over - 1 );
             _t_boun = _t_area - Point2D<int>( 0, over );
             _top._n = id - _dim;;
             _top._local = _t_area;
             _top._bound = _t_boun;
         }
-        MPI_Barrier( MPI_COMM_WORLD );
 
         // BOTTOM BORDER
         if ( isBottom( ) )
         {
             _b_neig = id + _dim;
-            _b_area = Rectangle<int>( _boun.left( ), _area.bottom( ) - over + 1, _boun.right( ), _area.bottom( ) );
+            _b_area = Rectangle<int>( _area.left( ), _area.bottom( ) - over + 1, _area.right( ), _area.bottom( ) );
             _b_boun = _b_area + Point2D<int>( 0, over );
             _bottom._n = id + _dim;;
             _bottom._local = _b_area;
             _bottom._bound = _b_boun;
         }
 
+        // LEFT BORDER
+        if ( isLeft( ) )
+        {
+            _l_neig = id - 1;
+            _l_area = Rectangle<int>( _area.left( ), _boun.top( ), _area.left( )+over-1, _boun.bottom( ) );
+            _l_boun = _l_area - Point2D<int>( over, 0 );
+
+            _left._n = _l_neig;
+            _left._local = _l_area;
+            _left._bound = _l_boun;
+
+            _topleft._n = _left._n;
+            _topleft._local = Rectangle<int>( _area.left( ), _boun.top( ), _area.left( )+over-1, _area.top( )+over-1-lsize/2 );
+            _topleft._bound = _topleft._local - Point2D<int>( over, 0 );
+         }
+
+        // RIGHT BORDER
+        if ( isRight( ) )
+        {
+            _r_neig = id + 1;
+            _r_area = Rectangle<int>( _area.right( ) - over + 1, _boun.top( ), _area.right( ), _boun.bottom( ) );
+            _r_boun = _r_area + Point2D<int>( over, 0 );
+            _right._n = _r_neig;
+            _right._local = _r_area;
+            _right._bound = _r_boun;
+
+            _topright._n = _right._n;
+            _topright._local = Rectangle<int>( _area.right( ) - over + 1, _boun.top( ), _area.right( ), _area.top( )+over-1-lsize/2 );
+            _topright._bound = _topright._local + Point2D<int>( over, 0 );
+        }
+        
         if ( _pos._x%2 == _pos._y%2 )
         {
             if ( isLeft( ) ) push_back( _l_neig, _l_area, _l_boun );

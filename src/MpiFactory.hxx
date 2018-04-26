@@ -52,6 +52,7 @@ namespace Engine
         void registerTypes( );
         //! method to delete from mpi stack all the created types
         void cleanTypes( );
+        int getSize( ) { return _types.size(); }
 
         void * createDefaultPackage( const std::string & type );
         Agent * createAndFillAgent( const std::string & type, void * package );
